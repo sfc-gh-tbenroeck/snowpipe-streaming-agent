@@ -1,0 +1,32 @@
+config.json
+rsa_key.*
+
+# Compiled class files
+*.class
+
+# Log files
+*.log
+
+# Maven build directories
+target/
+dependency-reduced-pom.xml
+
+# IntelliJ IDEA IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Eclipse IDE files
+.classpath
+.project
+.settings/
+
+# Gradle build directories
+.gradle/
+build/
+
+# Miscellaneous
+bin/
+*.swp
+.DS_Store

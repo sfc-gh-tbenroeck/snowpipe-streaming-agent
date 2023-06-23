@@ -1,0 +1,62 @@
+"ItemDefinition": [
+        {
+            "columnName": "ReplenishmentID",
+            "columnType": "String",
+            "randomType": "UUID"
+        },
+        {
+            "columnName": "TruckID",
+            "randomType": "Int",
+            "valueFormat": "Truck-{random}"
+        },
+        {
+            "columnName": "DistrbutionCenterId",
+            "randomType": "UUID"
+        },
+        {
+            "columnName": "StoreID",
+            "randomType": "UUID"
+        },
+        {
+            "columnName": "ProductID",
+            "randomType": "Int",
+            "valueFormat": "Product-{random}",
+            "minInt": 1,
+            "maxInt": 1000
+        },
+        {
+            "columnName": "QuantityRequested",
+            "randomType": "Int",
+            "valueFormat": "{random}",
+            "minInt": 500,
+            "maxInt": 10000
+        },
+        {
+            "columnName": "DateRequested",
+            "randomType": "CurrentDate"
+        },
+        {
+            "columnName": "RequestedByEmployee",
+            "randomType": "Faker",
+            "fakerMethods": [
+                "name",
+                "fullName"
+            ]
+        },
+        {
+            "columnName": "ReplenishmentDate",
+            "randomType": "RandomDate",
+            "minDate": "2022-01-01",
+            "maxDate": "2023-12-31",
+            "minTime": "08:00:00",
+            "maxTime": "18:00:00"
+        },
+        {
+            "columnName": "ReplenishmentType",
+            "randomType": "Choice",
+            "choices": [
+                "regular",
+                "emergency"
+            ]
+        }
+    ]
