@@ -34,10 +34,12 @@ CREATE OR REPLACE TABLE TESTINGDB.PUBLIC.STREAMINGDATA (
    ````
 
 ## Running locally (or from the Dev Container Terminal)
+Run the following commands to build the jar, load the env variables, and run the program.
 
 ```bash
 mvn clean package
-java -jar /app/target/Snowpipe-Streaming-Agent-1.0-SNAPSHOT-jar-with-dependencies.jar
+source .env
+java -jar target/Snowpipe-Streaming-Agent-1.0-SNAPSHOT-jar-with-dependencies.jar
 ```
 
 ### Docker
