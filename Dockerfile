@@ -16,10 +16,10 @@ FROM adoptopenjdk:8-jdk-hotspot
 RUN mkdir /config
 
 # Copy the config.json file to /config
-COPY config.json /config/config.json
+COPY config/config.json /config/config.json
 
 # Set the environment variable
-ENV CONFIGURATION_FILE_PATH=/config/config.json
+ENV CONFIG_FILE_PATH=/config/config.json
 
 # Create a volume for the config directory
 VOLUME /config

@@ -1,0 +1,65 @@
+{
+    "runtimeConfig": {
+        "runfor": 10,
+        "runforUnit": "minutes",
+        "rowGenerationMinMs": 100,
+        "rowGenerationMaxMs": 1000
+    },
+    "flushConfig": {
+        "maxJsonPayloadInMB": 5,
+        "rowsInBatch": 200,
+        "timeSinceLastFlushInMinutes": 1
+    },
+    "recordsConfig": [
+        {
+            "columnName": "Browser",
+            "columnType": "String",
+            "randomType": "Choice",
+            "choices": [
+                "Chrome",
+                "Safari",
+                "Mozila",
+                "Edge"
+            ]
+        },
+        {
+            "columnName": "eventDuration",
+            "randomType": "Int",
+            "minInt": 500,
+            "maxInt": 5000,
+            "valueFormat": "{random}"
+        },
+        {
+            "columnName": "UserAgent",
+            "randomType": "Faker",
+            "fakerMethods": [
+                "internet",
+                "userAgentAny"
+            ]
+        },
+        {
+            "columnName": "Email",
+            "randomType": "Faker",
+            "fakerMethods": [
+                "internet",
+                "emailAddress"
+            ]
+        },
+        {
+            "columnName": "IpAddress",
+            "randomType": "Faker",
+            "fakerMethods": [
+                "internet",
+                "publicIpV4Address"
+            ]
+        },
+        {
+            "columnName": "MacAddress",
+            "randomType": "Faker",
+            "fakerMethods": [
+                "internet",
+                "macAddress"
+            ]
+        }
+    ]
+}

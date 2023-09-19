@@ -1,4 +1,4 @@
-"ItemDefinition": [
+"recordsConfig": [
         {
             "columnName": "ReplenishmentID",
             "columnType": "String",

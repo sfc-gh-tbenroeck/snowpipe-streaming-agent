@@ -1,149 +1,166 @@
 package snowflake;
 
-import com.google.gson.Gson;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-
 import com.github.javafaker.Faker;
 
-import net.snowflake.ingest.streaming.InsertValidationResponse;
-import net.snowflake.ingest.streaming.OpenChannelRequest;
-import net.snowflake.ingest.streaming.SnowflakeStreamingIngestChannel;
-import net.snowflake.ingest.streaming.SnowflakeStreamingIngestClient;
-import net.snowflake.ingest.streaming.SnowflakeStreamingIngestClientFactory;
+import snowflake.SSAConfig.*;
+
+import com.fasterxml.jackson.databind.node.ArrayNode;
 
 import java.io.File;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.charset.Charset;
-import java.util.*;
-import java.util.concurrent.ThreadLocalRandom;
-import java.time.*;
-import java.time.format.DateTimeFormatter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.security.KeyFactory;
-import java.security.interfaces.RSAPrivateKey;
-import java.security.spec.PKCS8EncodedKeySpec;
+import java.time.*;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.logging.*;
 
 public class SnowpipeStreamingAgent {
-  private static Random random = new Random();
-  private static final boolean DEBUG = Boolean.parseBoolean(System.getenv("DEBUG"));
 
-  private static final String CONFIGURATION_FILE_PATH = System.getenv("CONFIGURATION_FILE_PATH") != null
-      ? System.getenv("CONFIGURATION_FILE_PATH")
-      : "config.json";
-  private static final ObjectMapper mapper = new ObjectMapper();
-  private static boolean sendItemAsJson = false;
+  private static final Logger logger = Logger.getLogger(SnowpipeStreamingAgent.class.getName());
 
   public static void main(String[] args) {
     try {
-      JsonNode root = mapper.readTree(new String(Files.readAllBytes(Paths.get(CONFIGURATION_FILE_PATH))));
-      Properties connectionDetails = getConnectionDetails(root);
-      JsonNode itemConfiguration = getItemConfiguration(root);
-      int totalItemsToSend = root.get("ItemsToSend").asInt();
-      sendItemAsJson = root.has("SendItemAsJson") ? root.get("SendItemAsJson").asBoolean() : false;
+      logger.info("Main class started");
 
-      try (SnowflakeStreamingIngestClient client = buildClient(connectionDetails)) {
-        sendItems(client, connectionDetails, itemConfiguration, totalItemsToSend);
+      try {
+        Level logLevel = Level.INFO;
+        String logLevelEnv = System.getenv("LOG_LEVEL");
+        if (logLevelEnv != null && !logLevelEnv.isEmpty()) {
+          logLevel = Level.parse(logLevelEnv.toUpperCase());
+        }
+
+        logger.setLevel(logLevel);
+
+        Handler[] handlers = logger.getHandlers();
+        if (handlers.length == 0) {
+          // If there are no handlers, add a new handler with the desired log level
+          ConsoleHandler handler = new ConsoleHandler();
+          handler.setLevel(logLevel);
+          logger.addHandler(handler);
+        } else {
+          // If there are existing handlers, set their log levels to the logger's log
+          // level
+          for (Handler handler : handlers) {
+            handler.setLevel(logLevel);
+          }
+        }
+
+        logger.info("Log level set to: " + logger.getLevel());
+
+      } catch (IllegalArgumentException e) {
+        logger.warning("Invalid log level in environment variable, using default log level: INFO");
       }
+
+      // Load the config file path from an environment variable
+      String configFilePath = System.getenv("CONFIG_FILE_PATH");
+      if (configFilePath == null || configFilePath.isEmpty()) {
+        throw new IllegalArgumentException("CONFIG_FILE_PATH environment variable is not set or is empty");
+      }
+
+      // Load the config file
+      ObjectMapper objectMapper = new ObjectMapper();
+      SSAConfig config = objectMapper.readValue(new File(configFilePath), SSAConfig.class);
+
+      RuntimeConfig runtimeConfig = config.getRuntimeConfig();
+      FlushConfig flushConfig = config.getFlushConfig();
+
+      int rowsInBatch = flushConfig.getRowsInBatch();
+      long minMS = runtimeConfig.getRowGenerationMinMs();
+      long maxMS = runtimeConfig.getRowGenerationMaxMs();
+      int maxJsonPayloadInMB = flushConfig.getMaxJsonPayloadInMB();
+      int flushTimeInMinutes = flushConfig.getTimeSinceLastFlushInMinutes();
+
+      long runFor = runtimeConfig.getRunfor();
+      String runForUnit = runtimeConfig.getRunforUnit();
+      long startTime = System.currentTimeMillis();
+      long runTimeLimit = runForUnit.equals("minutes") ? runFor * 60 * 1000 : -1;
+      int maxRows = runForUnit.equals("rows") ? (int) runFor : Integer.MAX_VALUE;
+
+      SnowflakeStreamingService snowflakeStreamingService = new SnowflakeStreamingService();
+      snowflakeStreamingService.setVariantColumn("EVENTJSON");
+
+      List<Map<String, Object>> batch = new ArrayList<>();
+      Random rand = new Random();
+      int generatedRowCount = 0;
+
+      long lastFlushTime = System.currentTimeMillis(); // New variable to track the last flush time
+
+      while ((runTimeLimit == -1 || System.currentTimeMillis() - startTime < runTimeLimit)
+          && generatedRowCount < maxRows) {
+
+        try {
+          Thread.sleep(rand.nextInt((int) (maxMS - minMS)) + minMS);
+
+          // Generate random data using the `generateItems` method
+          Map<String, Object> data = generateItems(config.recordsConfig);
+
+          logger.fine("Data created: " + data.toString());
+
+          Map<String, Object> row = snowflakeStreamingService.createRow(data);
+          batch.add(row);
+
+          String jsonPayload = batch.toString();
+          int payloadSize = jsonPayload.getBytes().length;
+
+          long timeSinceLastFlushInMilliseconds = System.currentTimeMillis() - lastFlushTime;
+
+          if (batch.size() >= rowsInBatch || payloadSize >= (maxJsonPayloadInMB * 1024 * 1024)
+              || timeSinceLastFlushInMilliseconds >= (flushTimeInMinutes * 1000 * 60)) {
+            if (batch.size() >= rowsInBatch) {
+              logger.info("Flushing because the batch size reached the maximum number of rows in batch ("
+                  + rowsInBatch + ")");
+            } else if (payloadSize >= (maxJsonPayloadInMB * 1024 * 1024)) {
+              logger.info("Flushing because the payload size reached the maximum allowed size in MB ("
+                  + maxJsonPayloadInMB + " MB)");
+            } else if (timeSinceLastFlushInMilliseconds >= (flushTimeInMinutes * 1000 * 60)) {
+              logger.info("Flushing because the time since last flush ("
+                  + flushTimeInMinutes + " minutes)");
+            }
+
+            snowflakeStreamingService.sendToSnowpipeBatch(batch);
+            logger.fine("Batch sent: " + batch.toString());
+
+            // Reset the batch and time
+            batch = new ArrayList<>();
+            lastFlushTime = System.currentTimeMillis(); // Update the last flush time
+          }
+
+        } catch (InterruptedException e) {
+          logger.log(Level.SEVERE, "An error occurred", e);
+        }
+        generatedRowCount++;
+      }
+      // Send remaining rows if any
+      if (!batch.isEmpty()) {
+        snowflakeStreamingService.sendToSnowpipeBatch(batch);
+        logger.fine("Remaining batch sent: " + batch.toString());
+      }
+
+      // Determine why the loop ended
+      if (System.currentTimeMillis() - startTime >= runTimeLimit && runTimeLimit != -1) {
+        logger.info("Loop ended because the runtime reached the specified limit of " + runFor + " " + runForUnit);
+      } else if (generatedRowCount >= maxRows) {
+        logger
+            .info("Loop ended because the row generation reached the specified limit of " + runFor + " " + runForUnit);
+      }
+
+      // Closing resources
+      logger.info("Closing Snowflake Channel");
+      snowflakeStreamingService.closeClientAndChannel();
+      logger.info("Snowflake Channel Closed");
+      logger.info("Main class completed");
+
     } catch (Exception e) {
-      System.err.println("Error: " + e.getMessage());
-      System.exit(1);
+      logger.log(Level.SEVERE, "An error occurred", e);
     }
   }
 
-  private static Properties getConnectionDetails(JsonNode root) throws Exception {
-    JsonNode connectionNode = root.get("ConnectionDetails");
-    Properties connectionDetails = getPropertiesFromJsonNode(connectionNode);
-
-    if (connectionDetails.getProperty("private_key_file") != null) {
-      String keyfile = connectionDetails.getProperty("private_key_file");
-      File key = new File(keyfile);
-      if (!key.exists()) {
-        throw new Exception("Unable to find key file:  " + keyfile);
-      }
-
-      String pkey = readPrivateKey(key);
-      connectionDetails.setProperty("private_key", pkey);
-    }
-
-    return connectionDetails;
-  }
-
-  private static JsonNode getItemConfiguration(JsonNode root) throws Exception {
-    JsonNode ItemDefinitionNode = root.get("ItemDefinition");
-    return ItemDefinitionNode;
-  }
-
-  private static Properties getPropertiesFromJsonNode(JsonNode node) {
-    Properties properties = new Properties();
-    Iterator<Map.Entry<String, JsonNode>> iterator = node.fields();
-    while (iterator.hasNext()) {
-      Map.Entry<String, JsonNode> prop = iterator.next();
-      properties.put(prop.getKey(), prop.getValue().asText());
-    }
-    return properties;
-  }
-
-  private static SnowflakeStreamingIngestClient buildClient(Properties connectionDetails) throws Exception {
-    return SnowflakeStreamingIngestClientFactory
-        .builder(connectionDetails.getProperty("streamingClient"))
-        .setProperties(connectionDetails)
-        .build();
-  }
-
-  private static void sendItems(SnowflakeStreamingIngestClient client, Properties connectionDetails,
-      JsonNode itemConfiguration, int totalItemsToSend) throws Exception {
-    OpenChannelRequest request = OpenChannelRequest.builder(connectionDetails.getProperty("streamingChannel"))
-        .setDBName(connectionDetails.getProperty("database"))
-        .setSchemaName(connectionDetails.getProperty("schema"))
-        .setTableName(connectionDetails.getProperty("table"))
-        .setOnErrorOption(OpenChannelRequest.OnErrorOption.CONTINUE)
-        .build();
-
-    SnowflakeStreamingIngestChannel channel = client.openChannel(request);
-
-    for (int i = 0; i < totalItemsToSend; i++) {
-      Map<String, Object> row = generateItems(itemConfiguration);
-
-      if (sendItemAsJson) {
-        Gson gson = new Gson();
-        String rowJson = gson.toJson(row);
-
-        row = new HashMap<>();
-        row.put("jsonValue", rowJson);
-      }
-
-      InsertValidationResponse response = channel.insertRow(row, String.valueOf(i));
-
-      if (response.hasErrors()) {
-        throw new Exception(response.getInsertErrors().get(0).getException());
-      }
-    }
-
-    channel.close().get();
-  }
-
-  private static String readPrivateKey(File file) throws Exception {
-    String key = new String(Files.readAllBytes(file.toPath()), Charset.defaultCharset());
-    String privateKeyPEM = key
-        .replace("-----BEGIN PRIVATE KEY-----", "")
-        .replaceAll(System.lineSeparator(), "")
-        .replace("-----END PRIVATE KEY-----", "");
-    if (DEBUG) { // check key file is valid
-      byte[] encoded = Base64.getDecoder().decode(privateKeyPEM);
-      KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-      PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(encoded);
-      RSAPrivateKey k = (RSAPrivateKey) keyFactory.generatePrivate(keySpec);
-      System.out.println("* DEBUG: Provided Private Key is Valid:  ");
-    }
-    return privateKeyPEM;
-  }
-
+  // Add your generateItems method here (unchanged)
   private static Map<String, Object> generateItems(JsonNode recordsNode) {
+    Random random = new Random();
     Map<String, Object> itemrow = new HashMap<>();
     Iterator<JsonNode> recordsIt = recordsNode.elements();
     Faker faker = new Faker();
@@ -203,7 +220,7 @@ public class SnowpipeStreamingAgent {
 
             value = methodResult; // The output of the last method is the final value
           } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
-            e.printStackTrace();
+            logger.log(Level.SEVERE, "An error occurred", e);
           }
           break;
       }

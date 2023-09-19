@@ -1,4 +1,4 @@
-"ItemDefinition": [
+"recordsConfig": [
         {
             "columnName": "Browser",
             "columnType": "String",

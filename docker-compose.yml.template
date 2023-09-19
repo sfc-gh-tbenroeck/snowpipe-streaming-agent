@@ -1,0 +1,22 @@
+version: '3'
+services:
+  micro:
+    container_name: snowpipe-streaming-agent
+    build:
+      context: .
+    #volumes:
+     # - ./config:/config
+    restart: always
+    environment:
+      SNOWPIPE_CLIENT_ACCOUNT: "wp48969.west-us-2.azure"
+      SNOWPIPE_CLIENT_PASSWORD: "P@s$W0Rd!"
+      SNOWPIPE_CLIENT_PRIVATE_KEY: "MIIEvAIB___NOT_REAL__g=="
+      SNOWPIPE_CLIENT_SCHEMA: "public"
+      SNOWPIPE_CLIENT_WAREHOUSE: "XSMALL"
+      SNOWPIPE_CLIENT_ROLE: "datawriter"
+      SNOWPIPE_CLIENT_STREAMING_CLIENT: "streamingClient"
+      SNOWPIPE_EVENT_CHANNEL_NAME: "streamingAgent"
+      SNOWPIPE_DB_SCHEMA_TABLE: "TESTINGDB.PUBLIC.STREAMINGDATA"
+      SNOWPIPE_EVENT_CHANNEL_VARIANT_COLUMN: "JSONVALUE"
+      LOG_LEVEL: FINE
+      #CONFIG_FILE_PATH: "./config/config.json"
